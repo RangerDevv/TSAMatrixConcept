@@ -21,6 +21,8 @@
 		"vite": "^7.0.4"
 	},
 	"dependencies": {
-		"appwrite": "^18.1.1"
+		"@tailwindcss/vite": "^4.1.11",
+		"appwrite": "^18.1.1",
+		"tailwindcss": "^4.1.11"
 	}
 }
