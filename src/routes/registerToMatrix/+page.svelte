@@ -52,21 +52,23 @@
         }
 
         for (let i = 0; i < events.length; i++) {
-            appwriteDatabases.updateDocument(
-                DB_ID,
-                COLLECTION.Events,
-                events[i].$id,
-                {
-                    Members: events[i].Members
-                }
-            );
+            if (events[i].Selected && events[i].teamSelected !== -1) {
+                appwriteDatabases.updateDocument(
+                    DB_ID,
+                    COLLECTION.Events,
+                    events[i].$id,
+                    {
+                        Members: events[i].Members
+                    }
+                );
+            }
         }
     }
 </script>
 
 <main>
     <nav class="flex flex-row justify-around p-4 gap-3">
-        <p class="flex-1 text-2xl">TSA Matrix</p>
+        <p class="flex-1 text-2xl pt-2">Matrix</p>
         <a href="/dashboard">
             <button
                 class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5"
@@ -84,7 +86,7 @@
         <p class="text-xl">Select Your Events:</p>
         {#each events as event}
             <label>
-                <input type="radio" bind:value={event.Selected} />
+                <input type="checkbox" bind:checked={event.Selected} />
                 {event.Name}
             </label>
         {/each}
@@ -115,7 +117,7 @@
                         </div>
                     {/each}
                     <button
-                        class="btn bg-[#1d71a8] text-white font-bold rounded-lg px-4 py-1 mb-3"
+                        class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-1 mb-3"
                         on:click={() => {
                             event.Members = [...event.Members, []];
                             event.teamSelected = event.Members.length - 1;
