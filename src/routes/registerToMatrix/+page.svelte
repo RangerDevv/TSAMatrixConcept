@@ -6,64 +6,6 @@
 
     let name = "";
     let events = [] as any[];
-
-    onMount(async () => {
-        await appwriteDatabases
-            .listDocuments(DB_ID, COLLECTION.Events)
-            .then((response) => {
-                events = response.documents;
-
-                for (let i = 0; i < events.length; i++) {
-                    for (let j = 0; j < events[i].Members.length; j++) {
-                        events[i].Members[j] = JSON.parse(events[i].Members[j]);
-                    }
-                }
-
-                console.log("Events fetched:", events);
-            });
-
-        await appwriteUser.get().then((user) => {
-            name = user.name || "Guest";
-        }).catch((error) => {
-            console.error("Error fetching user data:", error);
-        });
-    });
-
-    async function handleSubmit() {
-
-        for (let i = 0; i < events.length; i++) {
-            for (let j = 0; j < events[i].Members.length; j++) {
-                if (events[i].Selected && events[i].teamSelected !== -1) {
-                    if (!events[i].Members[j]) {
-                        events[i].Members[j] = [];
-                    }
-                    if (!events[i].Members[events[i].teamSelected].includes(name)) {
-                        events[i].Members[events[i].teamSelected].push(name);
-                    }
-                }
-            }
-        }
-        for (let i = 0; i < events.length; i++) {
-            for (let j = 0; j < events[i].Members.length; j++) {
-                if (typeof events[i].Members[j] !== 'string') {
-                    events[i].Members[j] = JSON.stringify(events[i].Members[j]);
-                }
-            }
-        }
-
-        for (let i = 0; i < events.length; i++) {
-            if (events[i].Selected && events[i].teamSelected !== -1) {
-                appwriteDatabases.updateDocument(
-                    DB_ID,
-                    COLLECTION.Events,
-                    events[i].$id,
-                    {
-                        Members: events[i].Members
-                    }
-                );
-            }
-        }
-    }
 </script>
 
 <main>
@@ -126,10 +68,5 @@
                 </div>
             {/if}
         {/each}
-
-        <button
-            class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5"
-            on:click={handleSubmit}
-            >Submit</button>
     </div>
 </main>
