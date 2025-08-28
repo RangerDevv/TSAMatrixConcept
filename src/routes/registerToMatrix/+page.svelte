@@ -11,39 +11,66 @@
     onMount(async () => {
         const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events,[Query.select(['*',"teams.*"])]);
         events = response.documents;
-        console.log(events)
         const user = await appwriteUser.get();
         name = user.name || "Unknown User";
-        console.log("Current user:", name);
     });
 
-    function submitEvent() {
+    function createTeam(event) {
+        // Only add locally, don't submit to DB yet
+        const newTeam = {
+            TeamID: "2043-90" + (event.teams.length + 1),
+            Members: [name],
+            Selected: true,
+            eventID: event.$id
+            // No $id yet
+        };
+        event.teams.forEach(t => t.Selected = false);
+        event.teams = [...event.teams, newTeam];
+        events = [...events]; // Force Svelte to update UI
+    }
+
+    async function submitEvent() {
         for (const event of events) {
             if (event.Selected) {
                 // Find the selected team
                 const selectedTeam = event.teams.find(team => team.Selected);
-                console.log("Selected team:", selectedTeam);
                 if (selectedTeam) {
+                    // If the selected team is new (no $id), create it first
+                    if (!selectedTeam.$id) {
+                        const createdTeam = await appwriteDatabases.createDocument(
+                            DB_ID,
+                            COLLECTION.Teams,
+                            ID.unique(),
+                            {
+                                TeamID: selectedTeam.TeamID,
+                                Members: selectedTeam.Members,
+                                teams: selectedTeam.eventID
+                            }
+                        );
+                        selectedTeam.$id = createdTeam.$id;
+                    }
                     // Remove user from all other teams in this event
-                    event.teams.forEach(team => {
+                    for (const team of event.teams) {
                         if (team !== selectedTeam && team.Members.includes(name)) {
                             team.Members = team.Members.filter(member => member !== name);
-                            appwriteDatabases.updateDocument(
-                                DB_ID,
-                                COLLECTION.Teams,
-                                team.$id,
-                                { Members: [ ...team.Members ] }
-                            );
+                            if (team.$id) {
+                                await appwriteDatabases.updateDocument(
+                                    DB_ID,
+                                    COLLECTION.Teams,
+                                    team.$id,
+                                    { Members: [...team.Members] }
+                                );
+                            }
                         }
-                    });
+                    }
                     // Add user to selected team if not already present and not full
                     if (!selectedTeam.Members.includes(name) && selectedTeam.Members.length < event.MaxMembersPerTeam) {
                         selectedTeam.Members.push(name);
-                        appwriteDatabases.updateDocument(
+                        await appwriteDatabases.updateDocument(
                             DB_ID,
                             COLLECTION.Teams,
                             selectedTeam.$id,
-                            { Members: [ ...selectedTeam.Members ] }
+                            { Members: [...selectedTeam.Members] }
                         );
                     }
                 }
@@ -81,7 +108,8 @@
         {#each events as event,i}
             {#if event.Selected}
                 <div class="border p-3 my-2 rounded-lg bg-gray-50">
-                    <h3 class="font-bold text-lg mb-2">Event: {event.Name}</h3>
+                    <h3 class="font-bold text-lg mb-1">Event: {event.Name}</h3>
+                    <p class="mb-2 text-sm">Max {event.MaxMembersPerTeam} members per team</p>
                     {#each event.teams as team, index}
                         <div class="mb-2">
                             <label class="flex items-center gap-2">
@@ -90,6 +118,7 @@
                                     name={`team-${i}`}
                                     value={index}
                                     checked={team.Selected}
+                                    disabled={team.Members.length >= event.MaxMembersPerTeam}
                                     on:change={() => {
                                         event.teams.forEach((t, idx) => t.Selected = idx === index);
                                         event.teams = [...event.teams];
@@ -108,10 +137,16 @@
                     {/each}
                     <button
                         class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-1 mb-3"
-                        on:click={submitEvent}
+                        on:click={() => createTeam(event)}
                     >Create My Team</button>
                 </div>
             {/if}
         {/each}
+        <div>
+            <button
+                class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5"
+                on:click={submitEvent}
+            >Submit</button>
+        </div>
     </div>
 </main>
