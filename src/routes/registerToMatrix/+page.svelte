@@ -15,7 +15,7 @@
         name = user.name || "Unknown User";
     });
 
-    function createTeam(event) {
+    function createTeam(event:any) {
         // Only add locally, don't submit to DB yet
         const newTeam = {
             TeamID: "2043-90" + (event.teams.length + 1),
