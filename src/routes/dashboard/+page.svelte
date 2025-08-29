@@ -10,8 +10,7 @@
     let events = [];
 
     onMount(async () => {
-        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*', 'teams.*'])]);
-        events = response.documents;
+
     });
 </script>
 
