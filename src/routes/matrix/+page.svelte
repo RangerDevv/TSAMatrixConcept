@@ -46,6 +46,27 @@
     const FLAG_TOKEN_PREFIX = '[FLG:'; // stored inside Information
     const FLAG_MAP: Record<string, { key: string; label: string; color: string }> = Object.fromEntries(EVENT_FLAGS.map(f => [f.key, f]));
 
+    // Filtering state
+    let activeFlagFilters: string[] = [];
+
+    // Derived filtered events (events must include ALL active filters)
+    $: filteredEvents = activeFlagFilters.length === 0
+        ? events
+        : events.filter(ev => {
+            if (!ev._flags || ev._flags.length === 0) return false;
+            return activeFlagFilters.every(f => ev._flags.includes(f));
+        });
+
+    function toggleFilterFlag(key: string) {
+        if (activeFlagFilters.includes(key)) {
+            activeFlagFilters = activeFlagFilters.filter(k => k !== key);
+        } else {
+            activeFlagFilters = [...activeFlagFilters, key];
+        }
+    }
+
+    function clearFilters() { activeFlagFilters = []; }
+
     function extractFlags(info: string | null | undefined): { base: string; flags: string[] } {
         if (!info) return { base: '', flags: [] };
         const flagPattern = /\[FLG:([A-Z0-9_\-]+)\]/g;
@@ -278,17 +299,52 @@
         </a>
     </nav>
     <div class="mt-8 md:mx-16 md:rounded-xl md:shadow-lg md:bg-white outline">
-        <div class="flex justify-between items-center px-4 py-3 border-b bg-gray-50 rounded-t-xl">
-            <h2 class="font-semibold">Events Matrix</h2>
-            <div class="flex gap-2">
-                <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={openCreateEvent}>+ New Event</button>
+        <div class="px-4 py-3 border-b bg-gray-50 rounded-t-xl space-y-4">
+            <div class="flex justify-between items-center">
+                <h2 class="font-semibold">Events Matrix</h2>
+                <div class="flex gap-2">
+                    <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={openCreateEvent}>+ New Event</button>
+                </div>
+            </div>
+            <!-- Flag Filters -->
+            <div class="filter-bar rounded-lg border bg-white/80 backdrop-blur px-3 py-3 flex flex-col gap-3 shadow-sm">
+                <div class="flex items-center justify-between flex-wrap gap-2">
+                    <div class="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                        <span class="inline-flex items-center gap-1"><svg width="14" height="14" viewBox="0 0 24 24" class="text-blue-500"><path fill="currentColor" d="M3 4h18v2l-7 8v4l-4 2v-6L3 6z"/></svg> Filter by Flags</span>
+                        {#if activeFlagFilters.length > 0}
+                            <span class="text-xs font-medium px-2 py-0.5 bg-blue-100 text-blue-700 rounded-full">{activeFlagFilters.length} selected</span>
+                        {/if}
+                    </div>
+                    <div class="text-xs text-gray-500 font-medium">{filteredEvents.length} result{filteredEvents.length === 1 ? '' : 's'}</div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    {#each EVENT_FLAGS as f}
+                        <button
+                            class="flag-chip {activeFlagFilters.includes(f.key) ? 'active' : ''}"
+                            type="button"
+                            aria-pressed={activeFlagFilters.includes(f.key)}
+                            on:click={() => toggleFilterFlag(f.key)}
+                        >
+                            <span class="dot" style="--dot-color: var(--c, currentColor);"></span>
+                            <span class="label-text">{f.label}</span>
+                            {#if activeFlagFilters.includes(f.key)}
+                                <span class="check">✓</span>
+                            {/if}
+                        </button>
+                    {/each}
+                </div>
+                {#if activeFlagFilters.length > 0}
+                    <div class="flex gap-3 items-center">
+                        <button class="text-xs font-semibold text-blue-600 hover:text-blue-700 underline" type="button" on:click={clearFilters}>Clear Filters</button>
+                    </div>
+                {/if}
             </div>
         </div>
         <!-- Desktop Table -->
         <div class="hidden md:block overflow-x-auto">
             <table class="min-w-full border border-gray-300 text-md rounded-xl overflow-hidden">
                 <tbody>
-                    {#each events as event}
+                    {#each filteredEvents as event}
                         <tr class="bg-gray-50">
                             <td class="border px-4 py-2 align-top font-bold whitespace-nowrap w-40">
                                 <div class="flex flex-col gap-1 text-sm">
@@ -336,7 +392,7 @@
         </div>
         <!-- Mobile Columns Layout -->
         <div class="md:hidden flex flex-col gap-6 mx-2">
-            {#each events as event}
+            {#each filteredEvents as event}
                 <div class="border rounded-t-none w-full rounded-xl shadow p-3 bg-white">
                     <div class="font-bold text-lg mb-2">{event.Name}</div>
                     {#if event._baseInfo}
@@ -527,27 +583,7 @@
         text-transform: uppercase;
         white-space: nowrap;
     }
-    .mini-btn {
-        display: inline-flex;
-        align-items: center;
-        gap: 0.25rem;
-        font-size: 0.65rem;
-        line-height: 1;
-        padding: 0.4rem 0.65rem;
-        background: linear-gradient(90deg,#6366f1,#3b82f6);
-        color: #fff;
-        border-radius: 0.5rem;
-        font-weight: 600;
-        letter-spacing: .25px;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.18), 0 0 0 1px rgba(99,102,241,.45);
-        transition: background .25s, transform .15s, box-shadow .25s;
-    }
-    .mini-btn:hover {
-        background: linear-gradient(90deg,#818cf8,#2563eb);
-        box-shadow: 0 2px 6px rgba(0,0,0,0.22), 0 0 0 1px rgba(37,99,235,.55);
-    }
-    .mini-btn:active { transform: translateY(1px); }
-    .mini-btn:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+    /* Removed gradient mini-btn styles (not used) */
     .form-label {
         font-size: 0.9rem; /* larger than tailwind text-sm */
         letter-spacing: 0.25px;
@@ -558,6 +594,40 @@
         font-weight: 600;
         letter-spacing: .3px;
         text-transform: uppercase;
+    }
+    /* Filter UI */
+    .filter-bar { border: 1px solid #e5e7eb; }
+    .flag-chip {
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.45rem;
+        font-size: 0.55rem;
+        font-weight: 600;
+        letter-spacing: .35px;
+        text-transform: uppercase;
+        padding: 0.42rem 0.65rem 0.38rem 0.6rem;
+        background: #f8fafc; /* slate-50 */
+        color: #334155; /* slate-700 */
+        border-radius: 0.6rem;
+        border: 1px solid #e2e8f0; /* slate-200 */
+        transition: background .18s, color .18s, border-color .18s, box-shadow .18s, transform .15s;
+    }
+    .flag-chip .dot {
+        width: 6px; height: 6px; border-radius: 50%; background: var(--dot-color,#6366f1); box-shadow: 0 0 0 2px #ffffff, 0 0 0 3px rgba(0,0,0,0.1);
+    }
+    .flag-chip .check { font-size: 0.6rem; font-weight: 700; }
+    .flag-chip:hover { background: #f1f5f9; }
+    .flag-chip:active { transform: translateY(1px); }
+    .flag-chip.active { background: #eef2ff; color: #1e3a8a; border-color: #6366f1; box-shadow: 0 0 0 2px rgba(99,102,241,0.25); }
+    .flag-chip.active .dot { background: #6366f1; box-shadow: 0 0 0 2px #fff, 0 0 0 3px rgba(99,102,241,0.35); }
+    .flag-chip .label-text { white-space: nowrap; }
+    .flag-chip:focus-visible { outline: 2px solid #2563eb; outline-offset: 2px; }
+    .filter-bar::-webkit-scrollbar { height: 6px; }
+    .filter-bar::-webkit-scrollbar-track { background: transparent; }
+    .filter-bar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    @media (max-width: 768px) {
+        .flag-chip { font-size: 0.6rem; }
     }
     @media (min-width: 1024px) {
         .form-label { font-size: 0.95rem; }
