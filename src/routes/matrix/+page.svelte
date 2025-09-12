@@ -8,6 +8,7 @@
     let users: any[] = [];
 
     let showSidebar = false;
+    let sidebarMode: 'team' | 'event' = 'team';
     let editingEvent: any = null;
     let editingTeam: any = null;
     let draftMembers: string[] = [];
@@ -17,14 +18,52 @@
     let errorMsg = "";
     let successMsg = "";
 
-    onMount(async () => {
-        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*', 'teams.*'])]);
-        events = response.documents;
-        const userResponse = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Students, [Query.select(['*'])]);
-        users = userResponse.documents;
-    });
+    // Event draft fields
+    let draftEventName = '';
+    let draftEventInfo = '';
+    let draftEventMax = 4;
+    let creatingNewEvent = false;
+    let draftEventFlags: string[] = [];
+    let draftEventStateMax: number = 0; // New field for state max
+
+    // Event flag definitions (keys kept short; tokens embedded into Information field as [FLG:key])
+    const EVENT_FLAGS = [
+        { key: 'OPEN_SLOTS', label: 'Open event slots', color: 'bg-emerald-100 text-emerald-700 border-emerald-300' },
+        { key: 'PA_ONLY', label: 'PA ONLY event', color: 'bg-red-100 text-red-700 border-red-300' },
+        { key: 'NATL_AT_STATES', label: 'Natl event offered at states', color: 'bg-indigo-100 text-indigo-700 border-indigo-300' },
+        { key: 'EXTRA_COMP', label: 'Extra competitors (in-house required)', color: 'bg-amber-100 text-amber-700 border-amber-300' },
+        { key: 'IN_PERSON', label: 'In-Person', color: 'bg-blue-100 text-blue-700 border-blue-300' },
+        { key: 'EARLY_SUB_REG', label: 'Early Submission (Regional)', color: 'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-300' },
+        { key: 'POST_CONF', label: 'Post Conference', color: 'bg-slate-100 text-slate-700 border-slate-300' },
+        { key: 'TEAM', label: 'T = team', color: 'bg-teal-100 text-teal-700 border-teal-300' },
+        { key: 'STATE_MAX', label: 'SM = state max', color: 'bg-orange-100 text-orange-700 border-orange-300' },
+        { key: 'REGIONAL_REQ', label: 'R = must be at regional conf', color: 'bg-yellow-100 text-yellow-700 border-yellow-300' },
+        { key: 'STATE_QUAL', label: 'Q = state qualifier', color: 'bg-pink-100 text-pink-700 border-pink-300' },
+        { key: 'NEW_EVENT', label: 'New Event', color: 'bg-lime-100 text-lime-700 border-lime-300' },
+        { key: 'EARLY_SUB_PA', label: 'Early Submission (PA)', color: 'bg-purple-100 text-purple-700 border-purple-300' }
+    ];
+
+    const FLAG_TOKEN_PREFIX = '[FLG:'; // stored inside Information
+    const FLAG_MAP: Record<string, { key: string; label: string; color: string }> = Object.fromEntries(EVENT_FLAGS.map(f => [f.key, f]));
+
+    function extractFlags(info: string | null | undefined): { base: string; flags: string[] } {
+        if (!info) return { base: '', flags: [] };
+        const flagPattern = /\[FLG:([A-Z0-9_\-]+)\]/g;
+        const flags: string[] = [];
+        const base = info.replace(flagPattern, (_m, key) => { flags.push(key); return ''; }).trim();
+        return { base: base.replace(/\n{2,}/g, '\n'), flags: Array.from(new Set(flags)) };
+    }
+
+    function composeInfo(base: string, flags: string[]): string {
+        const clean = base.trim();
+        const tokens = flags.map(f => `${FLAG_TOKEN_PREFIX}${f}]`).join(' ');
+        return tokens.length ? `${clean}\n\n${tokens}` : clean;
+    }
+
+    // Removed original basic onMount; replaced below with flag parsing version.
 
     function openSidebar(event: any, team: any) {
+        sidebarMode = 'team';
         editingEvent = event;
         editingTeam = team;
         draftMembers = [...team.Members];
@@ -32,6 +71,35 @@
         newMember = "";
         errorMsg = "";
         successMsg = "";
+        showSidebar = true;
+    }
+
+    function openCreateEvent() {
+        sidebarMode = 'event';
+        creatingNewEvent = true;
+        editingEvent = null;
+        draftEventName = '';
+        draftEventInfo = '';
+        draftEventMax = 4;
+        draftEventFlags = [];
+        draftEventStateMax = 0;
+        errorMsg = '';
+        successMsg = '';
+        showSidebar = true;
+    }
+
+    function openEditEvent(ev: any) {
+        sidebarMode = 'event';
+        creatingNewEvent = false;
+        editingEvent = ev;
+        draftEventName = ev.Name || '';
+        const parsed = extractFlags(ev.Information);
+        draftEventInfo = parsed.base || '';
+        draftEventFlags = [...parsed.flags];
+        draftEventMax = ev.MaxMembersPerTeam || 4;
+        draftEventStateMax = ev.StateMax ?? 0;
+        errorMsg = '';
+        successMsg = '';
         showSidebar = true;
     }
 
@@ -43,6 +111,7 @@
         draftTeamID = "";
         newMember = "";
         saving = false;
+        creatingNewEvent = false;
     }
 
     function addMember() {
@@ -105,6 +174,98 @@
             saving = false;
         }
     }
+
+    async function saveEvent() {
+        if (draftEventName.trim().length === 0) { errorMsg = 'Event name required'; return; }
+        if (draftEventMax < 1) { errorMsg = 'Max members must be at least 1'; return; }
+        saving = true; errorMsg=''; successMsg='';
+        try {
+            if (!creatingNewEvent && editingEvent) {
+                editingEvent.Name = draftEventName.trim();
+                const fullInfo = composeInfo(draftEventInfo, draftEventFlags);
+                editingEvent.Information = fullInfo;
+                editingEvent.MaxMembersPerTeam = draftEventMax;
+                editingEvent.StateMax = draftEventStateMax;
+                // Update parsed helpers
+                const parsed = extractFlags(fullInfo);
+                editingEvent._baseInfo = parsed.base;
+                editingEvent._flags = parsed.flags;
+                await appwriteDatabases.updateDocument(
+                    DB_ID,
+                    COLLECTION.Events,
+                    editingEvent.$id,
+                    { Name: editingEvent.Name, Information: editingEvent.Information, MaxMembersPerTeam: editingEvent.MaxMembersPerTeam, StateMax: editingEvent.StateMax }
+                );
+                successMsg = 'Event updated';
+                events = [...events];
+            } // creation handled by createEventFinalize()
+        } catch (e:any) {
+            errorMsg = e.message || 'Failed to save event';
+        } finally { saving = false; }
+    }
+
+    async function createEventFinalize() {
+        // Separate function to correctly use ID.unique()
+        saving = true; errorMsg=''; successMsg='';
+        try {
+            const fullInfo = composeInfo(draftEventInfo, draftEventFlags);
+            const app = await appwriteDatabases.createDocument(
+                DB_ID,
+                COLLECTION.Events,
+                // @ts-ignore - runtime unique id
+                (await import('appwrite')).ID.unique(),
+                { Name: draftEventName.trim(), Information: fullInfo, MaxMembersPerTeam: draftEventMax, StateMax: draftEventStateMax }
+            );
+            app.teams = [];
+            const parsed = extractFlags(fullInfo);
+            app._baseInfo = parsed.base; app._flags = parsed.flags;
+            app.StateMax = draftEventStateMax;
+            events = [...events, app];
+            successMsg = 'Event created';
+            creatingNewEvent = false;
+            editingEvent = app;
+        } catch (e:any) {
+            errorMsg = e.message || 'Failed to create event';
+        } finally { saving = false; }
+    }
+
+    async function deleteEvent() {
+        if (!editingEvent) return;
+        saving = true; errorMsg=''; successMsg='';
+        try {
+            const id = editingEvent.$id;
+            events = events.filter(e => e !== editingEvent);
+            await appwriteDatabases.deleteDocument(DB_ID, COLLECTION.Events, id);
+            closeSidebar();
+        } catch (e:any) {
+            errorMsg = e.message || 'Failed to delete event';
+            saving = false;
+        }
+    }
+
+    function toggleFlag(key: string, checked: boolean) {
+        if (checked) {
+            if (!draftEventFlags.includes(key)) draftEventFlags = [...draftEventFlags, key];
+        } else {
+            draftEventFlags = draftEventFlags.filter(f => f !== key);
+        }
+    }
+
+    function onOverlayKey(e: KeyboardEvent) {
+        if (e.key === 'Escape' || e.key === 'Enter' || e.key === ' ') closeSidebar();
+    }
+
+    onMount(async () => {
+        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*', 'teams.*'])]);
+        events = response.documents.map(ev => {
+            const parsed = extractFlags(ev.Information);
+            ev._baseInfo = parsed.base;
+            ev._flags = parsed.flags;
+            return ev;
+        });
+        const userResponse = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Students, [Query.select(['*'])]);
+        users = userResponse.documents;
+    });
 </script>
 
 <main>
@@ -117,14 +278,41 @@
         </a>
     </nav>
     <div class="mt-8 md:mx-16 md:rounded-xl md:shadow-lg md:bg-white outline">
+        <div class="flex justify-between items-center px-4 py-3 border-b bg-gray-50 rounded-t-xl">
+            <h2 class="font-semibold">Events Matrix</h2>
+            <div class="flex gap-2">
+                <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={openCreateEvent}>+ New Event</button>
+            </div>
+        </div>
         <!-- Desktop Table -->
         <div class="hidden md:block overflow-x-auto">
-            <table class="min-w-full border border-gray-300 text-sm rounded-xl overflow-hidden">
+            <table class="min-w-full border border-gray-300 text-md rounded-xl overflow-hidden">
                 <tbody>
                     {#each events as event}
                         <tr class="bg-gray-50">
-                            <td class="border px-4 py-2 align-top font-bold whitespace-nowrap" style="min-width: 120px;">
-                                {event.Name}
+                            <td class="border px-4 py-2 align-top font-bold whitespace-nowrap w-40">
+                                <div class="flex flex-col gap-1 text-sm">
+                                    <span>{event.Name}</span>
+                                    {#if event._baseInfo}
+                                        <span class="text-[11px] text-gray-600 max-w-[160px] line-clamp-3 whitespace-pre-line">{event._baseInfo}</span>
+                                    {/if}
+                                    {#if event._flags && event._flags.length > 0}
+                                        <div class="flex flex-wrap gap-1 mt-1 text-sm">
+                                            {#each event._flags as fk}
+                                                {#if FLAG_MAP[fk]}
+                                                    <span class="flag-badge {FLAG_MAP[fk].color}">{FLAG_MAP[fk].label}</span>
+                                                {:else}
+                                                    <span class="flag-badge bg-gray-100 text-gray-600 border-gray-300">{fk}</span>
+                                                {/if}
+                                            {/each}
+                                        </div>
+                                    {/if}
+                                    <span class="text-sm bg-blue-100 text-blue-700 px-1 rounded w-max">Max Members Per Team: {event.MaxMembersPerTeam}</span>
+                                    {#if event.StateMax > 0}
+                                        <span class="text-sm bg-orange-100 text-orange-700 px-1 rounded w-max">State Max: {event.StateMax}</span>
+                                    {/if}
+                                </div>
+                                <button class="w-full p-1 outline text-sm rounded-md mt-4" on:click={() => openEditEvent(event)}>Edit Event</button>
                             </td>
                             {#each event.teams as team}
                                 <td class="border px-4 py-2 align-top" style="min-width: 160px;">
@@ -172,42 +360,79 @@
             {/each}
         </div>
         {#if showSidebar}
-            <div class="fixed inset-0 bg-black/40 z-40" on:click={closeSidebar}></div>
-            <aside class="fixed top-0 right-0 h-full w-96 max-w-full bg-white shadow-xl z-50 flex flex-col">
-                <div class="p-5 border-b flex items-center justify-between">
-                    <h2 class="text-xl font-bold">Edit Team</h2>
+            <div class="fixed inset-0 bg-black/40 z-40" role="button" tabindex="0" aria-label="Close sidebar" on:click={closeSidebar} on:keydown={onOverlayKey}></div>
+            <aside class="fixed top-0 right-0 h-full w-[430px] max-w-full bg-white shadow-2xl z-50 flex flex-col">
+                <div class="p-5 border-b flex items-center justify-between bg-gray-50">
+                    <h2 class="text-xl font-bold">{sidebarMode === 'team' ? 'Edit Team' : (creatingNewEvent ? 'Create Event' : 'Edit Event')}</h2>
                     <button class="text-gray-500 hover:text-black" on:click={closeSidebar}>✕</button>
                 </div>
                 <div class="p-5 flex-1 overflow-y-auto space-y-6">
-                    <div>
-                        <label class="block text-sm font-semibold mb-1">Team ID</label>
-                        <input class="border rounded w-full px-3 py-2" bind:value={draftTeamID} />
-                    </div>
-                    <div>
-                        <label class="block text-sm font-semibold mb-2">Members</label>
-                        <div class="flex flex-wrap gap-2 mb-3">
-                            {#each draftMembers as member}
-                                <span class="px-2 py-1 rounded bg-green-100 text-green-800 flex items-center gap-1">
-                                    {member}
-                                    <button class="text-red-500 hover:text-red-700" on:click={() => removeMember(member)} title="Remove">&times;</button>
-                                </span>
-                            {/each}
-                            {#if draftMembers.length === 0}
-                                <span class="text-gray-400 text-sm">No members</span>
+                    {#if sidebarMode === 'team'}
+                        <div>
+                            <label for="team-id" class="form-label block font-semibold mb-1">Team ID</label>
+                            <input id="team-id" class="border rounded w-full px-3 py-2" bind:value={draftTeamID} />
+                        </div>
+                        <fieldset>
+                            <legend class="form-label block font-semibold mb-2">Members</legend>
+                            <div class="flex flex-wrap gap-2 mb-3">
+                                {#each draftMembers as member}
+                                    <span class="px-2 py-1 rounded bg-green-100 text-green-800 flex items-center gap-1">
+                                        {member}
+                                        <button class="text-red-500 hover:text-red-700" on:click={() => removeMember(member)} title="Remove">&times;</button>
+                                    </span>
+                                {/each}
+                                {#if draftMembers.length === 0}
+                                    <span class="text-gray-400 text-sm">No members</span>
+                                {/if}
+                            </div>
+                            <div class="flex gap-2">
+                                <select class="border rounded px-3 py-2 flex-1" bind:value={newMember}>
+                                    <option value="" disabled selected>Select user to add</option>
+                                    {#each users as user}
+                                        {#if !draftMembers.includes(user.Name)}
+                                            <option value={user.Name}>{user.Name}</option>
+                                        {/if}
+                                    {/each}
+                                </select>
+                                <button class="btn bg-[#34D399] text-white font-bold rounded-lg px-4" on:click={addMember}>Add</button>
+                            </div>
+                        </fieldset>
+                    {:else}
+                        <div class="space-y-4">
+                            <div>
+                                <label for="event-name" class="form-label block font-semibold mb-1">Event Name</label>
+                                <input id="event-name" class="border rounded w-full px-3 py-2" bind:value={draftEventName} placeholder="Robotics" />
+                            </div>
+                            <div>
+                                <label for="event-info" class="form-label block font-semibold mb-1">Information</label>
+                                <textarea id="event-info" class="border rounded w-full px-3 py-2 h-28 resize-none" bind:value={draftEventInfo} placeholder="Short description"></textarea>
+                            </div>
+                            <div>
+                                <label for="event-max" class="form-label block font-semibold mb-1">Max Members / Team</label>
+                                <input id="event-max" type="number" min="1" class="border rounded w-full px-3 py-2" bind:value={draftEventMax} />
+                            </div>
+                            <div>
+                                <label for="event-state-max" class="form-label block font-semibold mb-1">State Max (teams or competitors)</label>
+                                <input id="event-state-max" type="number" min="0" class="border rounded w-full px-3 py-2" bind:value={draftEventStateMax} />
+                                <p class="text-sm text-gray-500 mt-1">Leave 0 if no separate state quota.</p>
+                            </div>
+                            <fieldset>
+                                <legend class="form-label block font-semibold mb-1">Flags</legend>
+                                <div class="flex flex-wrap gap-2">
+                                    {#each EVENT_FLAGS as flag}
+                                        <label class="flag-option flex items-center gap-1 px-2 py-1 rounded border cursor-pointer select-none transition {draftEventFlags.includes(flag.key) ? 'bg-blue-50 border-blue-400 text-blue-700' : 'bg-gray-50 border-gray-300 text-gray-600'}">
+                                            <input aria-label={flag.label} type="checkbox" class="sr-only" value={flag.key} checked={draftEventFlags.includes(flag.key)} on:change={(e) => toggleFlag(flag.key, (e.target as HTMLInputElement).checked)} />
+                                            <span class="w-2 h-2 rounded-full" style="background: currentColor;"></span>
+                                            {flag.label}
+                                        </label>
+                                    {/each}
+                                </div>
+                            </fieldset>
+                            {#if !creatingNewEvent && editingEvent?.teams?.length > 0 && draftEventMax < editingEvent.MaxMembersPerTeam && editingEvent.teams.some((t:any)=> t.Members.length > draftEventMax)}
+                                <div class="text-xs text-red-600">Some teams exceed the new max. Adjust team sizes first.</div>
                             {/if}
                         </div>
-                        <div class="flex gap-2">
-                            <select class="border rounded px-3 py-2 flex-1" bind:value={newMember}>
-                                <option value="" disabled selected>Select user to add</option>
-                                {#each users as user}
-                                    {#if !draftMembers.includes(user.Name)}
-                                        <option value={user.Name}>{user.Name}</option>
-                                    {/if}
-                                {/each}
-                            </select>
-                            <button class="btn bg-[#34D399] text-white font-bold rounded-lg px-4" on:click={addMember}>Add</button>
-                        </div>
-                    </div>
+                    {/if}
                     {#if errorMsg}
                         <div class="text-red-600 text-sm">{errorMsg}</div>
                     {/if}
@@ -216,8 +441,17 @@
                     {/if}
                 </div>
                 <div class="p-5 border-t flex gap-3">
-                    <button class="btn bg-[#FF6565] text-white font-bold rounded-lg px-4 py-2" on:click={deleteTeam} disabled={saving}>Delete</button>
-                    <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={saveTeam} disabled={saving}>Save</button>
+                    {#if sidebarMode === 'team'}
+                        <button class="btn bg-[#FF6565] text-white font-bold rounded-lg px-4 py-2" on:click={deleteTeam} disabled={saving}>Delete</button>
+                        <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={saveTeam} disabled={saving}>Save</button>
+                    {:else}
+                        {#if !creatingNewEvent}
+                            <button class="btn bg-[#FF6565] text-white font-bold rounded-lg px-4 py-2" on:click={deleteEvent} disabled={saving}>Delete</button>
+                            <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={saveEvent} disabled={saving}>Save</button>
+                        {:else}
+                            <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={createEventFinalize} disabled={saving}>Create</button>
+                        {/if}
+                    {/if}
                     <button class="btn bg-gray-300 text-black font-bold rounded-lg px-4 py-2 ml-auto" on:click={closeSidebar}>Close</button>
                 </div>
             </aside>
@@ -231,7 +465,8 @@
         margin-left: auto;
         margin-right: auto;
     }
-    th, td {
+    /* Removed unused th selector (table headers not rendered) */
+    td {
         text-align: left;
     }
     .member-pill {
@@ -261,31 +496,51 @@
         .md\:mx-16 { margin-left: 4rem; margin-right: 4rem; }
     }
     aside { transition: transform .25s ease; }
-    /* Pretty edit button styles */
-    .edit-btn {
-        position: relative;
+    .flag-badge {
+        font-size: 0.55rem;
+        line-height: 1;
+        padding: 0.25rem 0.4rem;
+        border-radius: 0.375rem;
+        border: 1px solid transparent;
+        font-weight: 600;
+        letter-spacing: .5px;
+        text-transform: uppercase;
+        white-space: nowrap;
+    }
+    .mini-btn {
         display: inline-flex;
         align-items: center;
-        gap: 0.4rem;
+        gap: 0.25rem;
+        font-size: 0.65rem;
+        line-height: 1;
+        padding: 0.4rem 0.65rem;
+        background: linear-gradient(90deg,#6366f1,#3b82f6);
+        color: #fff;
+        border-radius: 0.5rem;
         font-weight: 600;
-        padding: 0.45rem 0.85rem 0.45rem 0.75rem;
-        border-radius: 0.55rem;
-        background: linear-gradient(90deg,#fcd34d,#fbbf24 55%,#f59e0b);
-        color: #783a00;
-        box-shadow: 0 2px 4px rgba(0,0,0,.08), 0 0 0 1px rgba(251,191,36,.3);
-        transition: background .25s, box-shadow .25s, transform .15s;
+        letter-spacing: .25px;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.18), 0 0 0 1px rgba(99,102,241,.45);
+        transition: background .25s, transform .15s, box-shadow .25s;
     }
-    .edit-btn:hover {
-        background: linear-gradient(90deg,#fde68a,#fcd34d 60%,#fbbf24);
-        box-shadow: 0 4px 10px rgba(0,0,0,.12), 0 0 0 2px rgba(251,191,36,.45);
+    .mini-btn:hover {
+        background: linear-gradient(90deg,#818cf8,#2563eb);
+        box-shadow: 0 2px 6px rgba(0,0,0,0.22), 0 0 0 1px rgba(37,99,235,.55);
     }
-    .edit-btn:active { transform: translateY(1px); }
-    .edit-btn:focus-visible { outline: 2px solid #fbbf24; outline-offset: 2px; }
-    .edit-btn svg { width: 16px; height: 16px; stroke: currentColor; stroke-width: 1.8; fill: none; }
-    .edit-btn .shine {
-        position:absolute; inset:0; border-radius:inherit; pointer-events:none;
-        background: radial-gradient(circle at 30% 20%,rgba(255,255,255,.55),transparent 60%);
-        mix-blend-mode: overlay; opacity:.65; transition: opacity .3s;
+    .mini-btn:active { transform: translateY(1px); }
+    .mini-btn:focus-visible { outline:2px solid #2563eb; outline-offset:2px; }
+    .form-label {
+        font-size: 0.9rem; /* larger than tailwind text-sm */
+        letter-spacing: 0.25px;
+        color: #111827;
     }
-    .edit-btn:hover .shine { opacity: .85; }
+    .flag-option {
+        font-size: 0.7rem;
+        font-weight: 600;
+        letter-spacing: .3px;
+        text-transform: uppercase;
+    }
+    @media (min-width: 1024px) {
+        .form-label { font-size: 0.95rem; }
+        .flag-option { font-size: 0.72rem; }
+    }
 </style>
