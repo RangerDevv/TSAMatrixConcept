@@ -337,8 +337,28 @@
         <!-- Mobile Columns Layout -->
         <div class="md:hidden flex flex-col gap-6 mx-2">
             {#each events as event}
-                <div class="border rounded-xl shadow p-3 bg-white">
+                <div class="border rounded-t-none w-full rounded-xl shadow p-3 bg-white">
                     <div class="font-bold text-lg mb-2">{event.Name}</div>
+                    {#if event._baseInfo}
+                        <div class="text-xs text-gray-600 whitespace-pre-line mb-2">{event._baseInfo}</div>
+                    {/if}
+                    {#if event._flags && event._flags.length > 0}
+                        <div class="flex flex-wrap gap-1 mb-2">
+                            {#each event._flags as fk}
+                                {#if FLAG_MAP[fk]}
+                                    <span class="flag-badge {FLAG_MAP[fk].color}">{FLAG_MAP[fk].label}</span>
+                                {:else}
+                                    <span class="flag-badge bg-gray-100 text-gray-600 border-gray-300">{fk}</span>
+                                {/if}
+                            {/each}
+                        </div>
+                    {/if}
+                    <div class="flex flex-wrap gap-1 mb-3">
+                        <span class="text-[0.65rem] font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded">Max/Team: {event.MaxMembersPerTeam}</span>
+                        {#if event.StateMax > 0}
+                            <span class="text-[0.65rem] font-semibold bg-orange-100 text-orange-700 px-2 py-0.5 rounded">State Max: {event.StateMax}</span>
+                        {/if}
+                    </div>
                     <div class="grid grid-cols-1 gap-4">
                         {#each event.teams as team}
                             <div class="border rounded-lg p-2 bg-gray-50">
