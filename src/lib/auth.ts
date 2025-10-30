@@ -21,18 +21,23 @@ export async function createUser(
     });
 }
 
-export async function logInUser(email: string, password: string, name: string) {
+export async function logInUser(email: string, password: string, name?: string) {
   const user = await appwriteUser
     .createEmailPasswordSession(email, password)
     .then((res: any) => {
-      appwriteDatabases.createDocument(
-        DB_ID,
-        COLLECTION.Students,
-        userId,
-        { Name: name }
-      ).then(() => {
+      if (name && name.trim()) {
+        appwriteDatabases
+          .createDocument(DB_ID, COLLECTION.Students, userId, { Name: name })
+          .then(() => {
+            goto("/dashboard");
+          })
+          .catch((err: any) => {
+            console.error(err);
+            goto("/dashboard");
+          });
+      } else {
         goto("/dashboard");
-      });
+      }
     })
     .catch((error: any) => {
       console.error(error);
