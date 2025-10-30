@@ -1,11 +1,12 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import { appwriteDatabases } from "$lib/index";
+    import { appwriteDatabases, appwriteUser } from "$lib/index";
     import { Query } from "appwrite";
     import { DB_ID, COLLECTION } from "$lib/ids";
 
     let events: any[] = [];
     let users: any[] = [];
+    let isAdmin = false;
 
     let showSidebar = false;
     let sidebarMode: 'team' | 'event' = 'team';
@@ -84,6 +85,7 @@
     // Removed original basic onMount; replaced below with flag parsing version.
 
     function openSidebar(event: any, team: any) {
+        if (!isAdmin) return;
         sidebarMode = 'team';
         editingEvent = event;
         editingTeam = team;
@@ -96,6 +98,7 @@
     }
 
     function openCreateEvent() {
+        if (!isAdmin) return;
         sidebarMode = 'event';
         creatingNewEvent = true;
         editingEvent = null;
@@ -110,6 +113,7 @@
     }
 
     function openEditEvent(ev: any) {
+        if (!isAdmin) return;
         sidebarMode = 'event';
         creatingNewEvent = false;
         editingEvent = ev;
@@ -277,6 +281,14 @@
     }
 
     onMount(async () => {
+
+        appwriteUser.get().then(response => {
+            if (response.labels[0] === 'admin') {
+                isAdmin = true;
+                console.log("Admin user detected");
+            }
+        });
+
         const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*', 'teams.*'])]);
         events = response.documents.map(ev => {
             const parsed = extractFlags(ev.Information);
@@ -291,7 +303,7 @@
 
 <main>
     <nav class="flex flex-row justify-around p-4 gap-3">
-        <a class="flex-1 text-xl" href="/">TSA Matrix</a>
+        <a class="flex-1 text-xl" href="/dashboard">TSA Matrix</a>
         <a href="/registerToMatrix">
             <button
                 class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5"
@@ -303,7 +315,9 @@
             <div class="flex justify-between items-center">
                 <h2 class="font-semibold">Events Matrix</h2>
                 <div class="flex gap-2">
-                    <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={openCreateEvent}>+ New Event</button>
+                    {#if isAdmin}
+                        <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={openCreateEvent}>+ New Event</button>
+                    {/if}
                 </div>
             </div>
             <!-- Flag Filters -->
@@ -368,7 +382,9 @@
                                         <span class="text-sm bg-orange-100 text-orange-700 px-1 rounded w-max">State Max: {event.StateMax}</span>
                                     {/if}
                                 </div>
-                                <button class="w-full p-1 outline text-sm rounded-md mt-4" on:click={() => openEditEvent(event)}>Edit Event</button>
+                                {#if isAdmin}
+                                    <button class="w-full p-1 outline text-sm rounded-md mt-4" on:click={() => openEditEvent(event)}>Edit Event</button>
+                                {/if}
                             </td>
                             {#each event.teams as team}
                                 <td class="border px-4 py-2 align-top" style="min-width: 160px;">
@@ -382,7 +398,9 @@
                                             <span class="text-gray-400">No members</span>
                                         {/if}
                                     </div>
-                                    <button class="btn bg-[#FBBF24] text-black font-bold rounded-lg px-3 py-1 bottom-0 " on:click={() => openSidebar(event, team)}>Edit</button>
+                                    {#if isAdmin}
+                                        <button class="btn bg-[#FBBF24] text-black font-bold rounded-lg px-3 py-1 bottom-0 " on:click={() => openSidebar(event, team)}>Edit</button>
+                                    {/if}
                                 </td>
                             {/each}
                         </tr>
@@ -428,7 +446,9 @@
                                         <span class="text-gray-400">No members</span>
                                     {/if}
                                 </div>
-                                <button class="btn bg-[#FBBF24] text-black font-bold rounded-lg px-3 py-1" on:click={() => openSidebar(event, team)}>Edit</button>
+                                {#if isAdmin}
+                                    <button class="btn bg-[#FBBF24] text-black font-bold rounded-lg px-3 py-1" on:click={() => openSidebar(event, team)}>Edit</button>
+                                {/if}
                             </div>
                         {/each}
                     </div>

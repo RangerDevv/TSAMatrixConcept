@@ -7,6 +7,11 @@
 
     let name = "";
     let events = [] as any[];
+    
+    // Prevent multiple rapid team creations for the same event
+    function hasPendingUserTeam(ev: any): boolean {
+        return Array.isArray(ev?.teams) && ev.teams.some((t: any) => !t.$id && Array.isArray(t.Members) && t.Members.includes(name));
+    }
 
     onMount(async () => {
         const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events,[Query.select(['*',"teams.*"])]);
@@ -16,6 +21,8 @@
     });
 
     function createTeam(event:any) {
+        // Guard: if there's already a newly created (unsaved) team for this user in this event, do nothing
+        if (hasPendingUserTeam(event)) return;
         // Only add locally, don't submit to DB yet
         const newTeam = {
             TeamID: "2043-90" + (event.teams.length + 1),
@@ -24,7 +31,7 @@
             eventID: event.$id
             // No $id yet
         };
-        event.teams.forEach(t => t.Selected = false);
+        event.teams.forEach((t: any) => t.Selected = false);
         event.teams = [...event.teams, newTeam];
         events = [...events]; // Force Svelte to update UI
     }
@@ -33,7 +40,7 @@
         for (const event of events) {
             if (event.Selected) {
                 // Find the selected team
-                const selectedTeam = event.teams.find(team => team.Selected);
+                const selectedTeam = event.teams.find((team: any) => team.Selected);
                 if (selectedTeam) {
                     // If the selected team is new (no $id), create it first
                     if (!selectedTeam.$id) {
@@ -50,9 +57,9 @@
                         selectedTeam.$id = createdTeam.$id;
                     }
                     // Remove user from all other teams in this event
-                    for (const team of event.teams) {
+                    for (const team of event.teams as any[]) {
                         if (team !== selectedTeam && team.Members.includes(name)) {
-                            team.Members = team.Members.filter(member => member !== name);
+                            team.Members = (team.Members as string[]).filter((member: string) => member !== name);
                             if (team.$id) {
                                 await appwriteDatabases.updateDocument(
                                     DB_ID,
@@ -120,7 +127,7 @@
                                     checked={team.Selected}
                                     disabled={team.Members.length >= event.MaxMembersPerTeam}
                                     on:change={() => {
-                                        event.teams.forEach((t, idx) => t.Selected = idx === index);
+                                        (event.teams as any[]).forEach((t: any, idx: number) => t.Selected = idx === index);
                                         event.teams = [...event.teams];
                                     }}
                                 />
@@ -136,7 +143,8 @@
                         </div>
                     {/each}
                     <button
-                        class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-1 mb-3"
+                        class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-1 mb-3 disabled:opacity-60 disabled:cursor-not-allowed"
+                        disabled={hasPendingUserTeam(event)}
                         on:click={() => createTeam(event)}
                     >Create My Team</button>
                 </div>
