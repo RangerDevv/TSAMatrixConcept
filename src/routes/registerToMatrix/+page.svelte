@@ -2,6 +2,7 @@
     import { onMount } from "svelte";
     import { logOutUser } from "$lib/auth";
     import { appwriteDatabases, appwriteUser } from "$lib/index";
+    import { goto } from "$app/navigation";
     import { Query, ID, Teams } from "appwrite";
     import { DB_ID, COLLECTION } from "$lib/ids";
 
@@ -19,6 +20,20 @@
         const user = await appwriteUser.get();
         name = user.name || "Unknown User";
     });
+
+    // Derived: which events are selected
+    $: selectedEvents = (events || []).filter((ev: any) => !!ev.Selected);
+    // For each selected event: must have exactly one team Selected, that team must include current user and not exceed max
+    function teamReady(ev: any): boolean {
+        if (!ev?.teams || ev.teams.length === 0) return false;
+        const chosen = ev.teams.filter((t: any) => !!t.Selected);
+        if (chosen.length !== 1) return false;
+        const t = chosen[0];
+        const includesUser = Array.isArray(t.Members) && t.Members.includes(name);
+        const underMax = typeof ev.MaxMembersPerTeam === 'number' ? t.Members.length <= ev.MaxMembersPerTeam : true;
+        return includesUser && underMax;
+    }
+    $: canSubmit = selectedEvents.length > 0 && selectedEvents.every((ev: any) => teamReady(ev));
 
     function createTeam(event:any) {
         // Guard: if there's already a newly created (unsaved) team for this user in this event, do nothing
@@ -83,7 +98,9 @@
                 }
             }
         }
+        goto('/dashboard');
     }
+
 </script>
 
 <main>
@@ -152,9 +169,15 @@
         {/each}
         <div>
             <button
-                class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5"
+                class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5 disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!canSubmit}
                 on:click={submitEvent}
             >Submit</button>
+            {#if !canSubmit}
+                <p class="text-sm text-gray-500 mt-2">
+                    Select at least one event, pick exactly one team per selected event, and ensure your name is in that team.
+                </p>
+            {/if}
         </div>
     </div>
 </main>
