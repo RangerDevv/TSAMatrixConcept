@@ -70,22 +70,33 @@
                     const parsed = extractFlags(ev.Information);
                     ev._baseInfo = parsed.base; ev._flags = parsed.flags; return ev;
                 });
-                const teamIdToEvent = new Map<string, any>();
+                // Maps to correlate accurately:
+                const teamDocIdToEvent = new Map<string, any>(); // team $id -> event
+                const eventIdToEvent = new Map<string, any>(); // event $id -> event
                 for (const ev of eventDocs) {
+                    eventIdToEvent.set(ev.$id, ev);
                     if (Array.isArray(ev.teams)) {
                         for (const t of ev.teams) {
-                            if (t?.TeamID) teamIdToEvent.set(t.TeamID, ev);
+                            if (t?.$id) teamDocIdToEvent.set(t.$id, ev);
                         }
                     }
                 }
                 events = teamDocs.map(td => {
-                    const ev = teamIdToEvent.get(td.TeamID);
+                    let ev = undefined as any;
+                    // Primary: match by team document id
+                    if (td.$id && teamDocIdToEvent.has(td.$id)) {
+                        ev = teamDocIdToEvent.get(td.$id);
+                    }
+                    // Secondary: match by foreign key (td.teams == event $id)
+                    if (!ev && td.teams && eventIdToEvent.has(td.teams)) {
+                        ev = eventIdToEvent.get(td.teams);
+                    }
                     if (ev) {
                         return { ...td, _eventName: ev.Name, _baseInfo: ev._baseInfo, _flags: ev._flags };
-                    } else {
-                        const parsed = extractFlags(td.Information);
-                        return { ...td, _baseInfo: parsed.base, _flags: parsed.flags };
                     }
+                    // Fallback: use team doc's own info
+                    const parsed = extractFlags(td.Information);
+                    return { ...td, _baseInfo: parsed.base, _flags: parsed.flags };
                 });
             } catch (e) {
                 console.warn('Event enrichment failed, falling back to team info', e);
