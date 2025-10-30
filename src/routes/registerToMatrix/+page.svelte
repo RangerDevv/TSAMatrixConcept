@@ -103,81 +103,121 @@
 
 </script>
 
-<main>
-    <nav class="flex flex-row justify-around p-4 gap-3">
-        <p class="flex-1 text-2xl pt-2">Matrix</p>
-        <a href="/dashboard">
+<main class="min-h-screen">
+    <nav class="flex items-center justify-between px-4 py-4 border-b">
+        <a class="text-2xl font-semibold tracking-tight" href="/">Matrix</a>
+        <div class="flex items-center gap-2">
+            <a href="/dashboard">
+                <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-5 py-2">Dashboard</button>
+            </a>
             <button
-                class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5"
-                >Dashboard</button
-            >
-        </a>
-        <button
-            class="btn bg-[#FF6565] p-2 text-white font-bold rounded-lg px-5"
-            on:click={async () => {
-                await logOutUser();
-            }}>Log Out</button
-        >
+                class="btn bg-[#FF6565] text-white font-bold rounded-lg px-5 py-2"
+                on:click={async () => { await logOutUser(); }}
+            >Log Out</button>
+        </div>
     </nav>
-    <div class="flex flex-col p-4 text-lg gap-y-3">
-        <p class="text-xl">Select Your Events:</p>
-        {#each events as event}
-            <label>
-                <input type="checkbox" bind:checked={event.Selected} />
-                {event.Name}
-            </label>
-        {/each}
 
-        <p class="text-xl">Select Your Team:</p>
-        {#each events as event,i}
-            {#if event.Selected}
-                <div class="border p-3 my-2 rounded-lg bg-gray-50">
-                    <h3 class="font-bold text-lg mb-1">Event: {event.Name}</h3>
-                    <p class="mb-2 text-sm">Max {event.MaxMembersPerTeam} members per team</p>
-                    {#each event.teams as team, index}
-                        <div class="mb-2">
-                            <label class="flex items-center gap-2">
-                                <input
-                                    type="checkbox"
-                                    name={`team-${i}`}
-                                    value={index}
-                                    checked={team.Selected}
-                                    disabled={team.Members.length >= event.MaxMembersPerTeam}
-                                    on:change={() => {
-                                        (event.teams as any[]).forEach((t: any, idx: number) => t.Selected = idx === index);
-                                        event.teams = [...event.teams];
-                                    }}
-                                />
-                                <span class="font-semibold">Team {team.TeamID}:</span>
-                                <span>
-                                    {#each team.Members as member, mIdx}
-                                        <span class="px-1 py-0.5 rounded bg-green-100 text-green-800 mx-1">
-                                            {member}
-                                        </span>
-                                    {/each}
-                                </span>
-                            </label>
+    <section class="max-w-5xl mx-auto px-4 py-6 space-y-8">
+        <header class="space-y-1">
+            <h1 class="text-2xl font-bold">Register to Matrix</h1>
+            <p class="text-sm text-gray-600">Choose your events, then pick your team for each selected event.</p>
+        </header>
+
+        <!-- Events selection -->
+        <div class="space-y-3">
+            <h2 class="text-lg font-semibold">Select your events</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {#each events as event}
+                    <label
+                        class={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition shadow-sm ${event.Selected ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+                    >
+                        <input class="sr-only" type="checkbox" bind:checked={event.Selected} />
+                        <span class={`mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${event.Selected ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>✓</span>
+                        <span class="flex-1">
+                            <span class="block font-semibold leading-tight">{event.Name}</span>
+                            <span class="block text-xs text-gray-500">Max {event.MaxMembersPerTeam} per team</span>
+                        </span>
+                    </label>
+                {/each}
+            </div>
+        </div>
+
+        <!-- Team selection per selected event -->
+        <div class="space-y-5">
+            <h2 class="text-lg font-semibold">Select your team</h2>
+            {#each events as event,i}
+                {#if event.Selected}
+                    <div class="rounded-xl border border-gray-200 bg-white shadow-sm p-4">
+                        <div class="flex items-start justify-between gap-3">
+                            <div>
+                                <h3 class="font-semibold text-lg">{event.Name}</h3>
+                                <p class="text-xs text-gray-500">Max {event.MaxMembersPerTeam} members per team</p>
+                            </div>
+                            <button
+                                class="btn bg-[#658BFF] text-white font-semibold rounded-md px-3 py-1.5 h-9 disabled:opacity-60 disabled:cursor-not-allowed"
+                                disabled={hasPendingUserTeam(event)}
+                                on:click={() => createTeam(event)}
+                            >Create My Team</button>
                         </div>
-                    {/each}
-                    <button
-                        class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-1 mb-3 disabled:opacity-60 disabled:cursor-not-allowed"
-                        disabled={hasPendingUserTeam(event)}
-                        on:click={() => createTeam(event)}
-                    >Create My Team</button>
-                </div>
-            {/if}
-        {/each}
-        <div>
+
+                        <div class="mt-3 space-y-2">
+                            {#each event.teams as team, index}
+                                {#key team}
+                                <label
+                                    class={`flex items-start justify-between gap-3 rounded-lg border p-3 cursor-pointer transition ${team.Members.length >= event.MaxMembersPerTeam ? 'bg-gray-100 border-gray-200 opacity-70' : (team.Selected ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:border-gray-300')}`}
+                                >
+                                    <div class="flex items-start gap-3">
+                                        <input
+                                            type="checkbox"
+                                            name={`team-${i}`}
+                                            value={index}
+                                            checked={team.Selected}
+                                            role="radio"
+                                            aria-checked={team.Selected}
+                                            disabled={team.Members.length >= event.MaxMembersPerTeam}
+                                            on:change={() => {
+                                                (event.teams as any[]).forEach((t: any, idx: number) => t.Selected = idx === index);
+                                                event.teams = [...event.teams];
+                                            }}
+                                        />
+                                        <div>
+                                            <div class="font-semibold">Team {team.TeamID}</div>
+                                            <div class="mt-1 flex flex-wrap gap-1">
+                                                {#each team.Members as member}
+                                                    <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-800 text-xs">{member}</span>
+                                                {/each}
+                                                {#if team.Members.length === 0}
+                                                    <span class="text-xs text-gray-400">No members</span>
+                                                {/if}
+                                            </div>
+                                        </div>
+                                    </div>
+                                    {#if team.Members.length >= event.MaxMembersPerTeam}
+                                        <span class="text-[11px] font-semibold text-red-600">Full</span>
+                                    {/if}
+                                </label>
+                                {/key}
+                            {/each}
+                        </div>
+                    </div>
+                {/if}
+            {/each}
+        </div>
+
+        <!-- Submit -->
+        <div class="flex items-center justify-between border-t pt-4">
+            <div class="text-xs text-gray-500">
+                {#if !canSubmit}
+                    Select at least one event, pick exactly one team per selected event, and ensure your name is in that team.
+                {:else}
+                    You’re all set. Review and submit.
+                {/if}
+            </div>
             <button
-                class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5 disabled:opacity-50 disabled:cursor-not-allowed"
+                class="btn bg-[#658BFF] text-white font-bold rounded-lg px-5 py-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 disabled={!canSubmit}
                 on:click={submitEvent}
             >Submit</button>
-            {#if !canSubmit}
-                <p class="text-sm text-gray-500 mt-2">
-                    Select at least one event, pick exactly one team per selected event, and ensure your name is in that team.
-                </p>
-            {/if}
         </div>
-    </div>
+    </section>
 </main>
