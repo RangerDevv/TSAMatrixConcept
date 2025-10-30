@@ -157,7 +157,7 @@
 
     <h1 class="text-2xl font-bold text-center mt-6">Your Events and Teams</h1>
 
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-wrap gap-3 items-center justify-center">
             {#each events as event}
                 <div class="border border-gray-300 rounded-lg p-4 m-4 w-64 bg-white outline shadow-lg">
                     <h3 class="text-xl font-bold">{event._eventName || event.TeamID}</h3>
