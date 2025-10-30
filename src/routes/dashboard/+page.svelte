@@ -62,13 +62,40 @@
                 teamDocs = r3.documents;
             } catch (e) { console.warn('Search members query failed', e); }
         }
-        // Enrich teams with parsed info from their own Information field
-        events = teamDocs.map(teamDoc => {
-            const parsed = extractFlags(teamDoc.Information);
-            teamDoc._baseInfo = parsed.base;
-            teamDoc._flags = parsed.flags;
-            return teamDoc;
-        });
+        // Enrich teams with their parent Event metadata (name, flags, base info) when possible
+        if (teamDocs.length > 0) {
+            try {
+                const evResp = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*','teams.*'])]);
+                const eventDocs = evResp.documents.map((ev: any) => {
+                    const parsed = extractFlags(ev.Information);
+                    ev._baseInfo = parsed.base; ev._flags = parsed.flags; return ev;
+                });
+                const teamIdToEvent = new Map<string, any>();
+                for (const ev of eventDocs) {
+                    if (Array.isArray(ev.teams)) {
+                        for (const t of ev.teams) {
+                            if (t?.TeamID) teamIdToEvent.set(t.TeamID, ev);
+                        }
+                    }
+                }
+                events = teamDocs.map(td => {
+                    const ev = teamIdToEvent.get(td.TeamID);
+                    if (ev) {
+                        return { ...td, _eventName: ev.Name, _baseInfo: ev._baseInfo, _flags: ev._flags };
+                    } else {
+                        const parsed = extractFlags(td.Information);
+                        return { ...td, _baseInfo: parsed.base, _flags: parsed.flags };
+                    }
+                });
+            } catch (e) {
+                console.warn('Event enrichment failed, falling back to team info', e);
+                // Fallback: use team's own info
+                events = teamDocs.map(teamDoc => {
+                    const parsed = extractFlags(teamDoc.Information);
+                    return { ...teamDoc, _baseInfo: parsed.base, _flags: parsed.flags };
+                });
+            }
+        }
         // If still no events, attempt to fetch Events and correlate; this does not alter card layout
         if (events.length === 0) {
             try {
@@ -123,7 +150,7 @@
             {#each events as event}
                 <div class="border border-gray-300 rounded-lg p-4 m-4 w-64 bg-white outline shadow-lg">
                     <h3 class="text-xl font-bold">{event._eventName || event.TeamID}</h3>
-                    <h3 class="text-lg">{event.TeamID}</h3>
+                    <p class="text-sm text-gray-600">Team ID: {event.TeamID}</p>
                     {#if event._baseInfo}
                         <p class="text-sm text-gray-700 whitespace-pre-line">{event._baseInfo}</p>
                     {/if}
@@ -138,7 +165,7 @@
                             {/each}
                         </div>
                     {/if}
-                    <p class="text-sm">Members: {event.Members?.join(', ')}</p>
+                    <p class="text-sm pt-3">Members: {event.Members?.join(', ')}</p>
                 </div>
             {/each}
             {#if events.length === 0}

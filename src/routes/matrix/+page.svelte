@@ -291,7 +291,7 @@
 
 <main>
     <nav class="flex flex-row justify-around p-4 gap-3">
-        <p class="flex-1 text-xl">TSA Matrix</p>
+        <a class="flex-1 text-xl" href="/">TSA Matrix</a>
         <a href="/registerToMatrix">
             <button
                 class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5"
