@@ -289,7 +289,7 @@
             }
         });
 
-        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*', 'teams.*'])]);
+        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*', 'teams.*']), Query.limit(100)]);
         events = response.documents.map(ev => {
             const parsed = extractFlags(ev.Information);
             ev._baseInfo = parsed.base;
