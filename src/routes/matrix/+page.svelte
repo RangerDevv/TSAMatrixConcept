@@ -289,14 +289,14 @@
             }
         });
 
-        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*', 'teams.*']), Query.limit(100)]);
+        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*', 'teams.*']), Query.limit(1000)]);
         events = response.documents.map(ev => {
             const parsed = extractFlags(ev.Information);
             ev._baseInfo = parsed.base;
             ev._flags = parsed.flags;
             return ev;
         });
-        const userResponse = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Students, [Query.select(['*'])]);
+        const userResponse = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Students, [Query.select(['*']), Query.limit(10000)]);
         users = userResponse.documents;
     });
 </script>
