@@ -15,14 +15,16 @@
     }
 
     onMount(async () => {
-        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events,[Query.select(['*',"teams.*"])]);
+        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events,[Query.select(['*',"teams.*"]), Query.limit(500)]);
         events = response.documents;
         const user = await appwriteUser.get();
         name = user.name || "Unknown User";
     });
 
-    // Derived: which events are selected
+    // Derived: which events are selected (max 6)
     $: selectedEvents = (events || []).filter((ev: any) => !!ev.Selected);
+    $: maxEventsReached = selectedEvents.length >= 6;
+    
     // For each selected event: must have exactly one team Selected, that team must include current user and not exceed max
     function teamReady(ev: any): boolean {
         if (!ev?.teams || ev.teams.length === 0) return false;
@@ -125,13 +127,16 @@
 
         <!-- Events selection -->
         <div class="space-y-3">
-            <h2 class="text-lg font-semibold">Select your events</h2>
+            <div class="flex items-center justify-between">
+                <h2 class="text-lg font-semibold">Select your events</h2>
+                <span class="text-sm text-gray-500">{selectedEvents.length}/6 selected</span>
+            </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {#each events as event}
                     <label
-                        class={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition shadow-sm ${event.Selected ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:border-gray-300'}`}
+                        class={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer transition shadow-sm ${event.Selected ? 'bg-blue-50 border-blue-300' : 'bg-white border-gray-200 hover:border-gray-300'} ${!event.Selected && maxEventsReached ? 'opacity-50 cursor-not-allowed' : ''}`}
                     >
-                        <input class="sr-only" type="checkbox" bind:checked={event.Selected} />
+                        <input class="sr-only" type="checkbox" bind:checked={event.Selected} disabled={!event.Selected && maxEventsReached} />
                         <span class={`mt-0.5 inline-flex h-4 w-4 items-center justify-center rounded-full text-[10px] font-bold ${event.Selected ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'}`}>✓</span>
                         <span class="flex-1">
                             <span class="block font-semibold leading-tight">{event.Name}</span>
