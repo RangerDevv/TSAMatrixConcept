@@ -294,6 +294,37 @@
             const parsed = extractFlags(ev.Information);
             ev._baseInfo = parsed.base;
             ev._flags = parsed.flags;
+            
+            // Auto-add EXTRA_COMP flag if teams exceed StateMax, remove if within limit
+            if (ev.StateMax > 0 && ev.teams) {
+                const teamsExceedMax = ev.teams.length > ev.StateMax;
+                const hasExtraComp = ev._flags.includes('EXTRA_COMP');
+                
+                if (teamsExceedMax && !hasExtraComp) {
+                    // Add EXTRA_COMP flag
+                    ev._flags = [...ev._flags, 'EXTRA_COMP'];
+                    const updatedInfo = composeInfo(ev._baseInfo, ev._flags);
+                    ev.Information = updatedInfo;
+                    appwriteDatabases.updateDocument(
+                        DB_ID,
+                        COLLECTION.Events,
+                        ev.$id,
+                        { Information: updatedInfo }
+                    ).catch(err => console.error('Failed to auto-add EXTRA_COMP flag:', err));
+                } else if (!teamsExceedMax && hasExtraComp) {
+                    // Remove EXTRA_COMP flag
+                    ev._flags = ev._flags.filter((flag: string) => flag !== 'EXTRA_COMP');
+                    const updatedInfo = composeInfo(ev._baseInfo, ev._flags);
+                    ev.Information = updatedInfo;
+                    appwriteDatabases.updateDocument(
+                        DB_ID,
+                        COLLECTION.Events,
+                        ev.$id,
+                        { Information: updatedInfo }
+                    ).catch(err => console.error('Failed to auto-remove EXTRA_COMP flag:', err));
+                }
+            }
+            
             return ev;
         });
         const userResponse = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Students, [Query.select(['*']), Query.limit(10000)]);
@@ -359,7 +390,7 @@
             <table class="min-w-full border border-gray-300 text-md rounded-xl overflow-hidden">
                 <tbody>
                     {#each filteredEvents as event}
-                        <tr class="bg-gray-50">
+                        <tr class="bg-gray-50 {event.StateMax > 0 && event.teams && event.teams.length > event.StateMax ? 'bg-red-200' : ''}">
                             <td class="border px-4 py-2 align-top font-bold whitespace-nowrap w-40">
                                 <div class="flex flex-col gap-1 text-sm">
                                     <span>{event.Name}</span>
@@ -411,7 +442,7 @@
         <!-- Mobile Columns Layout -->
         <div class="md:hidden flex flex-col gap-6 mx-2">
             {#each filteredEvents as event}
-                <div class="border rounded-t-none w-full rounded-xl shadow p-3 bg-white">
+                <div class="border rounded-t-none w-full rounded-xl shadow p-3 bg-white {event.StateMax > 0 && event.teams && event.teams.length > event.StateMax ? 'bg-red-50 border-red-200' : ''}">
                     <div class="font-bold text-lg mb-2">{event.Name}</div>
                     {#if event._baseInfo}
                         <div class="text-xs text-gray-600 whitespace-pre-line mb-2">{event._baseInfo}</div>
