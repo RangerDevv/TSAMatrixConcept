@@ -8,6 +8,18 @@
 
     let name = "";
     let events = [] as any[];
+    let allEvents = [] as any[];
+    let userOrgs: string[] = [];
+    let activeOrg = 'ALL';
+
+    const organizations = [
+        { id: 'TSA', name: 'TSA', color: 'bg-blue-500' },
+        { id: 'FBLA', name: 'FBLA', color: 'bg-green-500' },
+        { id: 'HOSA', name: 'HOSA', color: 'bg-red-500' }
+    ];
+
+    // Filter events by organization
+    $: events = activeOrg === 'ALL' ? allEvents : allEvents.filter(e => (e.Organization || 'TSA') === activeOrg);
     
     // Prevent multiple rapid team creations for the same event
     function hasPendingUserTeam(ev: any): boolean {
@@ -15,10 +27,26 @@
     }
 
     onMount(async () => {
-        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events,[Query.select(['*',"teams.*"]), Query.limit(500)]);
-        events = response.documents;
         const user = await appwriteUser.get();
         name = user.name || "Unknown User";
+        
+        // Get user's organization preferences
+        try {
+            const studentDocs = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Students);
+            const studentDoc = studentDocs.documents.find((doc: any) => doc.Name === name);
+            if (studentDoc && studentDoc.Organizations) {
+                userOrgs = studentDoc.Organizations;
+                // Default to first org if user has preferences
+                if (userOrgs.length > 0) {
+                    activeOrg = userOrgs[0];
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to load organization preferences', e);
+        }
+        
+        const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events,[Query.select(['*',"teams.*"]), Query.limit(500)]);
+        allEvents = response.documents;
     });
 
     // Derived: which events are selected (max 6)
@@ -124,6 +152,26 @@
             <h1 class="text-2xl font-bold">Register to Matrix</h1>
             <p class="text-sm text-gray-600">Choose your events, then pick your team for each selected event.</p>
         </header>
+
+        <!-- Organization filter tabs -->
+        <div class="flex gap-2 flex-wrap">
+            <button
+                class="px-4 py-2 rounded-lg font-semibold text-sm transition {activeOrg === 'ALL' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+                on:click={() => activeOrg = 'ALL'}
+            >
+                All Organizations ({allEvents.length})
+            </button>
+            {#each organizations as org}
+                {#if userOrgs.includes(org.id) || userOrgs.length === 0}
+                    <button
+                        class="px-4 py-2 rounded-lg font-semibold text-sm transition {activeOrg === org.id ? `${org.color} text-white` : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+                        on:click={() => activeOrg = org.id}
+                    >
+                        {org.name} ({allEvents.filter(e => (e.Organization || 'TSA') === org.id).length})
+                    </button>
+                {/if}
+            {/each}
+        </div>
 
         <!-- Events selection -->
         <div class="space-y-3">

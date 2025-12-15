@@ -5,8 +5,16 @@
     import { DB_ID, COLLECTION } from "$lib/ids";
 
     let events: any[] = [];
+    let allEvents: any[] = []; // All events before org filtering
     let users: any[] = [];
     let isAdmin = false;
+    let activeOrg = 'ALL'; // Organization filter
+
+    const organizations = [
+        { id: 'TSA', name: 'TSA', color: 'bg-blue-500' },
+        { id: 'FBLA', name: 'FBLA', color: 'bg-green-500' },
+        { id: 'HOSA', name: 'HOSA', color: 'bg-red-500' }
+    ];
 
     let showSidebar = false;
     let sidebarMode: 'team' | 'event' = 'team';
@@ -26,6 +34,7 @@
     let creatingNewEvent = false;
     let draftEventFlags: string[] = [];
     let draftEventStateMax: number = 0; // New field for state max
+    let draftEventOrg: string = 'TSA'; // Organization field
 
     // Event flag definitions (keys kept short; tokens embedded into Information field as [FLG:key])
     const EVENT_FLAGS = [
@@ -50,10 +59,11 @@
     // Filtering state
     let activeFlagFilters: string[] = [];
 
-    // Derived filtered events (events must include ALL active filters)
+    // Derived filtered events (events must include ALL active filters AND match organization)
+    $: orgFilteredEvents = activeOrg === 'ALL' ? allEvents : allEvents.filter(ev => (ev.Organization || 'TSA') === activeOrg);
     $: filteredEvents = activeFlagFilters.length === 0
-        ? events
-        : events.filter(ev => {
+        ? orgFilteredEvents
+        : orgFilteredEvents.filter(ev => {
             if (!ev._flags || ev._flags.length === 0) return false;
             return activeFlagFilters.every(f => ev._flags.includes(f));
         });
@@ -107,6 +117,7 @@
         draftEventMax = 4;
         draftEventFlags = [];
         draftEventStateMax = 0;
+        draftEventOrg = 'TSA';
         errorMsg = '';
         successMsg = '';
         showSidebar = true;
@@ -123,6 +134,7 @@
         draftEventFlags = [...parsed.flags];
         draftEventMax = ev.MaxMembersPerTeam || 4;
         draftEventStateMax = ev.StateMax ?? 0;
+        draftEventOrg = ev.Organization || 'TSA';
         errorMsg = '';
         successMsg = '';
         showSidebar = true;
@@ -211,6 +223,7 @@
                 editingEvent.Information = fullInfo;
                 editingEvent.MaxMembersPerTeam = draftEventMax;
                 editingEvent.StateMax = draftEventStateMax;
+                editingEvent.Organization = draftEventOrg;
                 // Update parsed helpers
                 const parsed = extractFlags(fullInfo);
                 editingEvent._baseInfo = parsed.base;
@@ -219,10 +232,10 @@
                     DB_ID,
                     COLLECTION.Events,
                     editingEvent.$id,
-                    { Name: editingEvent.Name, Information: editingEvent.Information, MaxMembersPerTeam: editingEvent.MaxMembersPerTeam, StateMax: editingEvent.StateMax }
+                    { Name: editingEvent.Name, Information: editingEvent.Information, MaxMembersPerTeam: editingEvent.MaxMembersPerTeam, StateMax: editingEvent.StateMax, Organization: editingEvent.Organization }
                 );
                 successMsg = 'Event updated';
-                events = [...events];
+                allEvents = [...allEvents];
             } // creation handled by createEventFinalize()
         } catch (e:any) {
             errorMsg = e.message || 'Failed to save event';
@@ -239,13 +252,14 @@
                 COLLECTION.Events,
                 // @ts-ignore - runtime unique id
                 (await import('appwrite')).ID.unique(),
-                { Name: draftEventName.trim(), Information: fullInfo, MaxMembersPerTeam: draftEventMax, StateMax: draftEventStateMax }
+                { Name: draftEventName.trim(), Information: fullInfo, MaxMembersPerTeam: draftEventMax, StateMax: draftEventStateMax, Organization: draftEventOrg }
             );
             app.teams = [];
             const parsed = extractFlags(fullInfo);
             app._baseInfo = parsed.base; app._flags = parsed.flags;
             app.StateMax = draftEventStateMax;
-            events = [...events, app];
+            app.Organization = draftEventOrg;
+            allEvents = [...allEvents, app];
             successMsg = 'Event created';
             creatingNewEvent = false;
             editingEvent = app;
@@ -290,7 +304,7 @@
         });
 
         const response = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*', 'teams.*']), Query.limit(1000)]);
-        events = response.documents.map(ev => {
+        allEvents = response.documents.map(ev => {
             const parsed = extractFlags(ev.Information);
             ev._baseInfo = parsed.base;
             ev._flags = parsed.flags;
@@ -343,13 +357,31 @@
     </nav>
     <div class="mt-8 md:mx-16 md:rounded-xl md:shadow-lg md:bg-white outline">
         <div class="px-4 py-3 border-b bg-gray-50 rounded-t-xl space-y-4">
-            <div class="flex justify-between items-center">
+            <div class="flex justify-between items-center flex-wrap gap-3">
                 <h2 class="font-semibold">Events Matrix</h2>
                 <div class="flex gap-2">
                     {#if isAdmin}
                         <button class="btn bg-[#658BFF] text-white font-bold rounded-lg px-4 py-2" on:click={openCreateEvent}>+ New Event</button>
                     {/if}
                 </div>
+            </div>
+            
+            <!-- Organization Tabs -->
+            <div class="flex gap-2 flex-wrap">
+                <button
+                    class="px-3 py-1.5 rounded-lg font-semibold text-sm transition {activeOrg === 'ALL' ? 'bg-gray-800 text-white' : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}"
+                    on:click={() => activeOrg = 'ALL'}
+                >
+                    All Organizations ({allEvents.length})
+                </button>
+                {#each organizations as org}
+                    <button
+                        class="px-3 py-1.5 rounded-lg font-semibold text-sm transition {activeOrg === org.id ? `${org.color} text-white` : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'}"
+                        on:click={() => activeOrg = org.id}
+                    >
+                        {org.name} ({allEvents.filter(e => (e.Organization || 'TSA') === org.id).length})
+                    </button>
+                {/each}
             </div>
             <!-- Flag Filters -->
             <div class="filter-bar rounded-lg border bg-white/80 backdrop-blur px-3 py-3 flex flex-col gap-3 shadow-sm">
@@ -542,6 +574,14 @@
                                 <label for="event-state-max" class="form-label block font-semibold mb-1">State Max (teams or competitors)</label>
                                 <input id="event-state-max" type="number" min="0" class="border rounded w-full px-3 py-2" bind:value={draftEventStateMax} />
                                 <p class="text-sm text-gray-500 mt-1">Leave 0 if no separate state quota.</p>
+                            </div>
+                            <div>
+                                <label for="event-org" class="form-label block font-semibold mb-1">Organization</label>
+                                <select id="event-org" class="border rounded w-full px-3 py-2" bind:value={draftEventOrg}>
+                                    <option value="TSA">TSA - Technology Student Association</option>
+                                    <option value="FBLA">FBLA - Future Business Leaders of America</option>
+                                    <option value="HOSA">HOSA - Health Occupations Students of America</option>
+                                </select>
                             </div>
                             <fieldset>
                                 <legend class="form-label block font-semibold mb-1">Flags</legend>

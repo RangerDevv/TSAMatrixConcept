@@ -1,6 +1,7 @@
 <script lang="ts">
     import { getCurrSession, logOutUser } from "$lib/auth";
     import { onMount } from "svelte";
+    import { goto } from "$app/navigation";
     import { appwriteDatabases, appwriteUser } from "$lib/index";
     import { Query } from "appwrite";
     import { DB_ID, COLLECTION } from "$lib/ids";
@@ -9,6 +10,19 @@
     let isRegisterOpen = true;
     let name = "";
     let events = [] as any[]; // team documents the user is a member of
+    let allEvents = [] as any[]; // all enriched events before filtering
+    let userOrgs: string[] = []; // user's selected organizations
+    let activeOrg = 'ALL'; // current organization filter
+
+    const organizations = [
+        { id: 'TSA', name: 'TSA', color: 'bg-blue-500', textColor: 'text-blue-600' },
+        { id: 'FBLA', name: 'FBLA', color: 'bg-green-500', textColor: 'text-green-600' },
+        { id: 'HOSA', name: 'HOSA', color: 'bg-red-500', textColor: 'text-red-600' }
+    ];
+
+    // Reactive filtering based on active organization
+    $: filteredEvents = activeOrg === 'ALL' ? allEvents : allEvents.filter(e => e._org === activeOrg);
+    $: events = filteredEvents;
 
     // Reuse flag system from matrix page
     const EVENT_FLAGS = [
@@ -40,6 +54,17 @@
     onMount(async () => {
         const user = await appwriteUser.get();
         name = user.name || "Unknown User";
+        
+        // Get user's organization preferences
+        try {
+            const studentDocs = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Students);
+            const studentDoc = studentDocs.documents.find((doc: any) => doc.Name === name);
+            if (studentDoc && studentDoc.Organizations) {
+                userOrgs = studentDoc.Organizations;
+            }
+        } catch (e) {
+            console.warn('Failed to load organization preferences', e);
+        }
         let teamDocs: any[] = [];
         let attempts: any[] = [];
         // Try multiple equality formats (Appwrite array field matching can vary by SDK/version)
@@ -64,51 +89,32 @@
         }
         // Enrich teams with their parent Event metadata (name, flags, base info) when possible
         if (teamDocs.length > 0) {
-            try {
-                const evResp = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*','teams.*'])]);
-                const eventDocs = evResp.documents.map((ev: any) => {
-                    const parsed = extractFlags(ev.Information);
-                    ev._baseInfo = parsed.base; ev._flags = parsed.flags; return ev;
-                });
-                // Maps to correlate accurately:
-                const teamDocIdToEvent = new Map<string, any>(); // team $id -> event
-                const eventIdToEvent = new Map<string, any>(); // event $id -> event
-                for (const ev of eventDocs) {
-                    eventIdToEvent.set(ev.$id, ev);
-                    if (Array.isArray(ev.teams)) {
-                        for (const t of ev.teams) {
-                            if (t?.$id) teamDocIdToEvent.set(t.$id, ev);
-                        }
-                    }
+            allEvents = teamDocs.map(td => {
+                // Check if td.teams is already the full Event object (with Name, Organization, etc.)
+                if (td.teams && typeof td.teams === 'object' && td.teams.Name) {
+                    const ev = td.teams;
+                    const parsed = extractFlags(ev.Information || '');
+                    return {
+                        ...td,
+                        _eventName: ev.Name,
+                        _baseInfo: parsed.base,
+                        _flags: parsed.flags,
+                        _org: ev.Organization || 'TSA'
+                    };
                 }
-                events = teamDocs.map(td => {
-                    let ev = undefined as any;
-                    // Primary: match by team document id
-                    if (td.$id && teamDocIdToEvent.has(td.$id)) {
-                        ev = teamDocIdToEvent.get(td.$id);
-                    }
-                    // Secondary: match by foreign key (td.teams == event $id)
-                    if (!ev && td.teams && eventIdToEvent.has(td.teams)) {
-                        ev = eventIdToEvent.get(td.teams);
-                    }
-                    if (ev) {
-                        return { ...td, _eventName: ev.Name, _baseInfo: ev._baseInfo, _flags: ev._flags };
-                    }
-                    // Fallback: use team doc's own info
-                    const parsed = extractFlags(td.Information);
-                    return { ...td, _baseInfo: parsed.base, _flags: parsed.flags };
-                });
-            } catch (e) {
-                console.warn('Event enrichment failed, falling back to team info', e);
-                // Fallback: use team's own info
-                events = teamDocs.map(teamDoc => {
-                    const parsed = extractFlags(teamDoc.Information);
-                    return { ...teamDoc, _baseInfo: parsed.base, _flags: parsed.flags };
-                });
-            }
+                // Fallback: use team doc's own info if event not embedded
+                const parsed = extractFlags(td.Information || '');
+                return {
+                    ...td,
+                    _eventName: td.TeamID, // Use TeamID as fallback name
+                    _baseInfo: parsed.base,
+                    _flags: parsed.flags,
+                    _org: td.Organization || 'TSA'
+                };
+            });
         }
         // If still no events, attempt to fetch Events and correlate; this does not alter card layout
-        if (events.length === 0) {
+        if (allEvents.length === 0) {
             try {
                 const evResp = await appwriteDatabases.listDocuments(DB_ID, COLLECTION.Events, [Query.select(['*','teams.*'])]);
                 const eventDocs = evResp.documents.map(ev => {
@@ -116,7 +122,6 @@
                     ev._baseInfo = parsed.base; ev._flags = parsed.flags; return ev;
                 });
                 // Flatten any teams that include user
-                const userTeams: any[] = [];
                 for (const ev of eventDocs) {
                     if (Array.isArray(ev.teams)) {
                         for (const t of ev.teams) {
@@ -126,23 +131,28 @@
                                 if (!clone._baseInfo) clone._baseInfo = ev._baseInfo;
                                 if (!clone._flags) clone._flags = ev._flags;
                                 clone._eventName = ev.Name;
-                                events.push(clone);
+                                clone._org = ev.Organization || 'TSA';
+                                allEvents.push(clone);
                             }
                         }
                     }
                 }
             } catch (e) { console.warn('Fallback events fetch failed', e); }
         }
-        console.log('Dashboard fetch attempts:', attempts, 'Final team count:', events.length);
+        console.log('Dashboard fetch attempts:', attempts, 'Final team count:', allEvents.length);
     });
 </script>
 
 <main>
     <nav class="flex flex-row justify-around p-4 gap-3">
-        <p class="flex-1 text-xl">TSA Matrix</p>
+        <p class="flex-1 text-xl">Matrix</p>
         <a href="/matrix">
             <button
-                class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5">Matrix</button>
+                class="btn bg-[#658BFF] p-2 text-white font-bold rounded-lg px-5">View Matrix</button>
+        </a>
+        <a href="/selectOrganization">
+            <button
+                class="btn bg-gray-200 text-gray-700 p-2 font-bold rounded-lg px-5">Organizations</button>
         </a>
         <button
             class="btn bg-[#FF6565] p-2 text-white font-bold rounded-lg px-5"
@@ -153,14 +163,50 @@
     </nav>
 
     <!-- greeting -->
-    <p class="text-left text-3xl p-4">Hello, {name}!</p>
+    <div class="px-4 py-3">
+        <p class="text-3xl font-bold">Hello, {name}!</p>
+        {#if userOrgs.length > 0}
+            <p class="text-sm text-gray-600 mt-1">Organizations: {userOrgs.join(', ')}</p>
+        {/if}
+    </div>
 
-    <h1 class="text-2xl font-bold text-center mt-6">Your Events and Teams</h1>
+    <div class="max-w-7xl mx-auto px-4">
+        <div class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-bold">Your Events and Teams</h1>
+            
+            <!-- Organization filter tabs -->
+            <div class="flex gap-2 flex-wrap">
+                <button
+                    class="px-4 py-2 rounded-lg font-semibold transition {activeOrg === 'ALL' ? 'bg-gray-800 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+                    on:click={() => activeOrg = 'ALL'}
+                >
+                    All ({allEvents.length})
+                </button>
+                {#each organizations as org}
+                    {#if userOrgs.includes(org.id) || userOrgs.length === 0}
+                        <button
+                            class="px-4 py-2 rounded-lg font-semibold transition {activeOrg === org.id ? `${org.color} text-white` : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}"
+                            on:click={() => activeOrg = org.id}
+                        >
+                            {org.name} ({allEvents.filter(e => e._org === org.id).length})
+                        </button>
+                    {/if}
+                {/each}
+            </div>
+        </div>
 
-        <div class="flex flex-wrap gap-3 items-center justify-center">
+        <div class="flex flex-wrap gap-3 items-start">
             {#each events as event}
-                <div class="border border-gray-300 rounded-lg p-4 m-4 w-64 bg-white outline shadow-lg">
-                    <h3 class="text-xl font-bold">{event._eventName || event.TeamID}</h3>
+                <div class="border border-gray-300 rounded-lg p-4 w-64 bg-white outline shadow-lg">
+                    <div class="flex items-start justify-between mb-2">
+                        <h3 class="text-xl font-bold flex-1">{event._eventName || event.TeamID}</h3>
+                        {#if event._org}
+                            {@const orgInfo = organizations.find(o => o.id === event._org)}
+                            {#if orgInfo}
+                                <span class="text-xs font-bold px-2 py-1 rounded {orgInfo.color} text-white">{orgInfo.name}</span>
+                            {/if}
+                        {/if}
+                    </div>
                     <p class="text-sm text-gray-600">Team ID: {event.TeamID}</p>
                     {#if event._baseInfo}
                         <p class="text-sm text-gray-700 whitespace-pre-line">{event._baseInfo}</p>
@@ -180,9 +226,10 @@
                 </div>
             {/each}
             {#if events.length === 0}
-                <p class="text-sm text-gray-500 italic m-4">No teams found for your account.</p>
+                <p class="text-sm text-gray-500 italic">No teams found{activeOrg !== 'ALL' ? ` for ${activeOrg}` : ''}.</p>
             {/if}
         </div>
+    </div>
 </main>
 
 <style>
